@@ -109,14 +109,16 @@ export const createTask = async (req, res) => {
     const assignmentError = await validateAssignment(req, project, assignedTo, assignedTeam);
     if (assignmentError) return res.status(400).json({ message: assignmentError });
 
+    const normalizedStatus = status || "pending";
     const createdTask = await Task.create({
       title,
       project: req.params.projectId,
       priority: priority || "medium",
-      status: status || "pending",
+      status: normalizedStatus,
       dueDate,
       assignedTo: assignedTo || null,
       assignedTeam: assignedTeam || project.team || "General",
+      completedAt: isCompletedStatus(normalizedStatus) ? new Date() : null,
     });
 
     if (req.user.role === "admin") {
@@ -192,9 +194,24 @@ export const updateTask = async (req, res) => {
       task.title = req.body.title || task.title;
       task.priority = req.body.priority || task.priority;
       task.status = req.body.status || task.status;
-      task.dueDate = req.body.dueDate || task.dueDate;
+      if (typeof req.body.dueDate !== "undefined") {
+        task.dueDate = req.body.dueDate ? req.body.dueDate : null;
+      }
       task.assignedTo = nextAssignedTo;
       task.assignedTeam = nextAssignedTeam;
+    }
+
+    if (isCompletedStatus(task.status) && !isCompletedStatus(previousStatus)) {
+      task.completedAt = new Date();
+    }
+    if (!isCompletedStatus(task.status) && isCompletedStatus(previousStatus)) {
+      task.completedAt = null;
+    }
+    if (typeof req.body.dueDate !== "undefined") {
+      const due = task.dueDate ? new Date(task.dueDate) : null;
+      if (!due || Number.isNaN(due.getTime()) || due > new Date()) {
+        task.overdueNotifiedAt = null;
+      }
     }
 
     await task.save();

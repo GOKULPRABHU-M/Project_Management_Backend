@@ -10,6 +10,7 @@ import taskRoutes from "./routes/tasks.js";
 import userRoutes from "./routes/users.js";
 import teamRoutes from "./routes/teams.js";
 import notificationRoutes from "./routes/notifications.js";
+import { runNotificationChecks, startNotificationScheduler } from "./utils/notificationScheduler.js";
 
 dotenv.config();
 const app = express();
@@ -59,6 +60,8 @@ const startServer = async () => {
     console.log("MongoDB connected");
     await migrateLegacyRoles();
     await ensureDefaultAdmin();
+    await runNotificationChecks();
+    startNotificationScheduler();
     app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
   } catch (error) {
     console.error("Failed to start server:", error.message);
