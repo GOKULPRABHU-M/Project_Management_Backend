@@ -2,9 +2,19 @@ import Project from "../models/Project.js";
 import Task from "../models/Task.js";
 import Team from "../models/Team.js";
 import User from "../models/User.js";
+import { createNotification } from "../utils/notificationHelper.js";
 
 const isMember = (project, userId) =>
   project.members.some((memberId) => memberId.toString() === userId.toString());
+const normalizeStatus = (status) =>
+  typeof status === "string" ? status.trim().toLowerCase() : status;
+const isCompletedStatus = (status) => ["completed", "done"].includes(normalizeStatus(status));
+const findTeamLeaderByTeam = async (teamName) => {
+  if (!teamName) return null;
+  const team = await Team.findOne({ name: teamName }).select("leader");
+  if (team?.leader) return await User.findById(team.leader);
+  return await User.findOne({ role: "team_leader", team: teamName });
+};
 
 // GET all projects
 export const getProjects = async (req, res) => {
@@ -48,6 +58,19 @@ export const createProject = async (req, res) => {
       members,
       createdBy: req.user._id,
     });
+
+    if (req.user.role === "admin") {
+      const leader = await findTeamLeaderByTeam(projectTeam);
+      if (leader) {
+        await createNotification({
+          userId: leader._id,
+          type: "project_assigned",
+          message: `Admin assigned you a project: ${project.name}`,
+          projectId: project._id,
+          actorId: req.user._id,
+        });
+      }
+    }
     res.status(201).json(project);
   } catch (err) {
     res.status(400).json({ message: err.message });
@@ -59,6 +82,9 @@ export const updateProject = async (req, res) => {
   try {
     const project = await Project.findById(req.params.id);
     if (!project) return res.status(404).json({ message: "Project not found" });
+
+    const previousStatus = project.status;
+    const previousTeam = project.team;
 
     // Only allow members to update
     if (req.user.role !== "admin" && !isMember(project, req.user._id))
@@ -74,6 +100,44 @@ export const updateProject = async (req, res) => {
       ? req.body.specifications
       : project.specifications;
     await project.save();
+
+    if (req.user.role === "admin" && project.team !== previousTeam) {
+      const leader = await findTeamLeaderByTeam(project.team);
+      if (leader) {
+        await createNotification({
+          userId: leader._id,
+          type: "project_assigned",
+          message: `Admin assigned you a project: ${project.name}`,
+          projectId: project._id,
+          actorId: req.user._id,
+        });
+      }
+    }
+
+    if (
+      req.user.role === "team_leader" &&
+      isCompletedStatus(project.status) &&
+      !isCompletedStatus(previousStatus)
+    ) {
+      const admins = await User.find({ role: "admin" }).select("_id");
+      console.log(
+        "[notifications] lead_completed_project",
+        `leader=${req.user._id}`,
+        `project=${project._id}`,
+        `admins=${admins.map((admin) => admin._id).join(",") || "none"}`
+      );
+      await Promise.all(
+        admins.map((admin) =>
+          createNotification({
+            userId: admin._id,
+            type: "project_completed",
+            message: `Lead completed project: ${project.name}`,
+            projectId: project._id,
+            actorId: req.user._id,
+          })
+        )
+      );
+    }
 
     res.json(project);
   } catch (err) {
