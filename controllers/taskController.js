@@ -212,6 +212,9 @@ export const updateTask = async (req, res) => {
       if (!due || Number.isNaN(due.getTime()) || due > new Date()) {
         task.overdueNotifiedAt = null;
       }
+      if (!due || Number.isNaN(due.getTime()) || due > new Date()) {
+        task.dueSoonNotifiedAt = null;
+      }
     }
 
     await task.save();

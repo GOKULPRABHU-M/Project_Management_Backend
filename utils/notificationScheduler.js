@@ -37,16 +37,56 @@ const notifyProjectDueSoon = async () => {
     if (!leader) {
       leader = await findTeamLeaderByTeam(project.team);
     }
-    if (!leader) continue;
+    if (leader) {
+      await createNotification({
+        userId: leader._id,
+        type: "project_due_soon",
+        message: `Project due tomorrow: ${project.name}`,
+        projectId: project._id,
+      });
+    }
 
-    await createNotification({
-      userId: leader._id,
-      type: "project_due_soon",
-      message: `Project due tomorrow: ${project.name}`,
-      projectId: project._id,
-    });
+    const admins = await User.find({ role: "admin" }).select("_id");
+    await Promise.all(
+      admins.map((admin) =>
+        createNotification({
+          userId: admin._id,
+          type: "project_due_soon",
+          message: `Project due tomorrow: ${project.name}`,
+          projectId: project._id,
+        })
+      )
+    );
+
+    if (!leader && !admins.length) continue;
     project.dueSoonNotifiedAt = new Date();
     await project.save();
+  }
+};
+
+const notifyTaskDueSoon = async () => {
+  const candidates = await Task.find({
+    dueDate: { $ne: null },
+    status: { $ne: "completed" },
+    $or: [{ dueSoonNotifiedAt: null }, { dueSoonNotifiedAt: { $exists: false } }],
+  }).select("title dueDate assignedTo project");
+
+  for (const task of candidates) {
+    if (!isDueTomorrow(task.dueDate)) continue;
+    if (!task.assignedTo) continue;
+
+    const assignee = await User.findById(task.assignedTo).select("role");
+    if (!assignee || assignee.role !== "member") continue;
+
+    await createNotification({
+      userId: task.assignedTo,
+      type: "task_due_soon",
+      message: `Task due tomorrow: ${task.title}`,
+      taskId: task._id,
+      projectId: task.project,
+    });
+    task.dueSoonNotifiedAt = new Date();
+    await task.save();
   }
 };
 
@@ -74,6 +114,7 @@ const notifyOverdueTasks = async () => {
 
 export const runNotificationChecks = async () => {
   await notifyProjectDueSoon();
+  await notifyTaskDueSoon();
   await notifyOverdueTasks();
 };
 

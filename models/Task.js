@@ -9,6 +9,7 @@ const taskSchema = new mongoose.Schema({
   status: { type: String, enum: ["pending", "completed"], default: "pending" },
   dueDate: { type: Date },
   completedAt: { type: Date },
+  dueSoonNotifiedAt: { type: Date },
   overdueNotifiedAt: { type: Date },
 }, { timestamps: true });
 
